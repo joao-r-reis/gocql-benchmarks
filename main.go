@@ -679,15 +679,15 @@ func main() {
 	flag.Parse()
 
 	// Setup Cassandra cluster
-	cluster := gocqlv1.NewCluster(*contactPoints)
-	if *compression {
-		cluster.Compressor = lz4v1.LZ4Compressor{}
+	cluster := &ClusterConfig{
+		Hosts:            strings.Split(*contactPoints, ","),
+		Compression:      *compression,
+		DefaultTimestamp: false,
+		ProtoVersion:     *protoVersion,
+		Timeout:          30 * time.Second,
 	}
-	cluster.DefaultTimestamp = false
-	cluster.ProtoVersion = *protoVersion
-	cluster.Timeout = 30 * time.Second
 
-	session, err := getSession()
+	var session Session
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}
@@ -774,16 +774,16 @@ func setupSchema(session *gocql.Session) error {
 	return nil
 }
 
-func runWarmup(session *gocql.Session) error {
+func runWarmup(session Session) error {
 	// Use nil metrics for warmup (we don't track warmup performance)
 	return runConcurrentCycles(session, *warmupCycles, "Warmup", true, nil)
 }
 
-func runConcurrentWorkload(session *gocql.Session, metrics *PerformanceMetrics) error {
+func runConcurrentWorkload(session Session, metrics *PerformanceMetrics) error {
 	return runConcurrentCycles(session, *cycles, "Worker", false, metrics)
 }
 
-func runConcurrentCycles(session *gocql.Session, totalCycles int, workerPrefix string, isWarmup bool, metrics *PerformanceMetrics) error {
+func runConcurrentCycles(session Session, totalCycles int, workerPrefix string, isWarmup bool, metrics *PerformanceMetrics) error {
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -904,7 +904,7 @@ func runConcurrentCycles(session *gocql.Session, totalCycles int, workerPrefix s
 	return err
 }
 
-func runWorkloadCycleWithContext(ctx context.Context, session *gocql.Session, rng *rand.Rand, cycle int, baseID int64, metrics *PerformanceMetrics) error {
+func runWorkloadCycleWithContext(ctx context.Context, session Session, rng *rand.Rand, cycle int, baseID int64, metrics *PerformanceMetrics) error {
 
 	// Check if context is cancelled before starting
 	if ctx.Err() != nil {
