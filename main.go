@@ -14,10 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	gocqlv2 "github.com/apache/cassandra-gocql-driver/v2"
-	lz4v2 "github.com/apache/cassandra-gocql-driver/v2/lz4"
-	gocqlv1 "github.com/gocql/gocql"
-	lz4v1 "github.com/gocql/gocql/lz4"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -649,12 +645,12 @@ func (m *PerformanceMetrics) printOperationStatsWithPercentiles(opName string, s
 var (
 	warmupCycles    = flag.Int("warmup-cycles", 10000, "Number of warmup cycles to run (same workload as main benchmark)")
 	cycles          = flag.Int("cycles", 100000, "Number of workload cycles to run")
-	rowCount        = flag.Int("rows", 1000000, "Number of rows (primary key range) to use for operations")
+	rowCount        = flag.Int64("rows", 1000000, "Number of rows (primary key range) to use for operations")
 	goroutines      = flag.Int("goroutines", 64, "Number of concurrent goroutines to run workload cycles")
 	seed            = flag.Int64("seed", 12345, "Random seed for deterministic behavior (use same seed for reproducible results)")
 	contactPoints   = flag.String("contact-points", "127.0.0.1", "Comma-separated list of Cassandra contact points")
 	keyspace        = flag.String("keyspace", "gocqlbenchmarksks", "Keyspace name")
-	table           = flag.String("table", "benchmark2", "Table name")
+	table           = flag.String("table", "benchmark1", "Table name")
 	compression     = flag.Bool("compression", false, "Enable LZ4 compression")
 	protoVersion    = flag.Int("proto-version", 4, "Cassandra protocol version")
 	metricsInterval = flag.Duration("metrics-interval", time.Second, "Interval for collecting system metrics (e.g., 1s, 500ms)")
@@ -687,7 +683,7 @@ func main() {
 		Timeout:          30 * time.Second,
 	}
 
-	var session Session
+	session, err := getSession(*cluster)
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}
@@ -744,28 +740,28 @@ func main() {
 	}
 }
 
-func setupSchema(session *gocql.Session) error {
+func setupSchema(session Session) error {
 	// Create keyspace
 	createKeyspace := fmt.Sprintf("CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = {'class':'SimpleStrategy', 'replication_factor':1}", *keyspace)
-	if err := session.Query(createKeyspace).Exec(); err != nil {
+	if err := session.Exec(createKeyspace); err != nil {
 		return fmt.Errorf("failed to create keyspace: %w", err)
 	}
 
 	// Create table
-	createTable := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.%s (id bigint PRIMARY KEY, c1 UUID, c2 text, c3 bigint)", *keyspace, *table)
-	if err := session.Query(createTable).Exec(); err != nil {
+	createTable := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.%s (id bigint PRIMARY KEY, c2 text, c3 bigint)", *keyspace, *table)
+	if err := session.Exec(createTable); err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
 
 	// Truncate table to start fresh
 	truncateTable := fmt.Sprintf("TRUNCATE %s.%s", *keyspace, *table)
-	if err := session.Query(truncateTable).Exec(); err != nil {
+	if err := session.Exec(truncateTable); err != nil {
 		return fmt.Errorf("failed to truncate table: %w", err)
 	}
 
 	time.Sleep(1 * time.Second)
 
-	if err := session.Query(truncateTable).Exec(); err != nil {
+	if err := session.Exec(truncateTable); err != nil {
 		return fmt.Errorf("failed to truncate table: %w", err)
 	}
 
@@ -865,7 +861,7 @@ func runConcurrentCycles(session Session, totalCycles int, workerPrefix string, 
 				rng := rand.New(rand.NewSource(rngSeed))
 
 				// Calculate baseID for this cycle
-				baseID := int64(cycle)
+				baseID := cycle % *rowCount
 
 				// Track cycle timing
 				cycleStart := time.Now()
@@ -912,20 +908,13 @@ func runWorkloadCycleWithContext(ctx context.Context, session Session, rng *rand
 	}
 
 	// 1. INSERT operation
-	uuidBytes := make([]byte, 16)
-	rng.Read(uuidBytes)
-	uuid, err := gocql.UUIDFromBytes(uuidBytes)
-	if err != nil {
-		return fmt.Errorf("failed to generate UUID: %w", err)
-	}
-
-	insertQuery := fmt.Sprintf("INSERT INTO %s.%s (id, c1, c2, c3) VALUES (?, ?, ?, ?)", *keyspace, *table)
+	insertQuery := fmt.Sprintf("INSERT INTO %s.%s (id, c2, c3) VALUES (?, ?, ?)", *keyspace, *table)
 	insertData := randStringBytes(rng, 16)
 	insertValue := baseID * baseID
 
 	// Time the INSERT operation
 	insertStart := time.Now()
-	if err := session.Query(insertQuery, baseID, uuid, insertData, insertValue).Exec(); err != nil {
+	if err := session.Exec(insertQuery, baseID, insertData, insertValue); err != nil {
 		return fmt.Errorf("INSERT failed: %w", err)
 	}
 	if metrics != nil {
@@ -944,7 +933,7 @@ func runWorkloadCycleWithContext(ctx context.Context, session Session, rng *rand
 
 	// Time the UPDATE operation
 	updateStart := time.Now()
-	if err := session.Query(updateQuery, updateData, updateValue, baseID).Exec(); err != nil {
+	if err := session.Exec(updateQuery, updateData, updateValue, baseID); err != nil {
 		return fmt.Errorf("UPDATE failed: %w", err)
 	}
 	if metrics != nil {
@@ -961,19 +950,14 @@ func runWorkloadCycleWithContext(ctx context.Context, session Session, rng *rand
 
 	// Time the SELECT operation
 	selectStart := time.Now()
-	iter := session.Query(selectQuery, baseID).Iter()
-	defer iter.Close()
 
 	var id int64
-	var c1 gocql.UUID
 	var c2 string
 	var c3 int64
 
-	if !iter.Scan(&id, &c1, &c2, &c3) {
-		if err := iter.Close(); err != nil {
-			return fmt.Errorf("SELECT failed: %w", err)
-		}
-		return fmt.Errorf("SELECT failed: inserted row with id %d not found", baseID)
+	err := session.Query(selectQuery, []interface{}{baseID}, &id, &c2, &c3)
+	if err != nil {
+		return fmt.Errorf("SELECT failed: %w", err)
 	}
 	if metrics != nil {
 		metrics.RecordSelect(time.Since(selectStart))
@@ -982,9 +966,6 @@ func runWorkloadCycleWithContext(ctx context.Context, session Session, rng *rand
 	// Verify all columns match what we inserted
 	if id != baseID {
 		return fmt.Errorf("SELECT failed: expected id %d, got %d", baseID, id)
-	}
-	if uuid != c1 {
-		return fmt.Errorf("SELECT failed: expected uuid %s, got %s", uuid, c1)
 	}
 	if c2 != updateData {
 		return fmt.Errorf("SELECT failed: expected c2 %s, got %s", updateData, c2)

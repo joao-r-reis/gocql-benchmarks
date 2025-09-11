@@ -1,6 +1,8 @@
 package main
 
-import "time"
+import (
+	"time"
+)
 
 type ClusterConfig struct {
 	// addresses for the initial connections. It is recommended to use the value set in
@@ -137,4 +139,6 @@ type ClusterConfig struct {
 
 type Session interface {
 	Close()
+	Exec(qry string, args ...interface{}) error
+	Query(qry string, args []interface{}, dest ...interface{}) error
 }

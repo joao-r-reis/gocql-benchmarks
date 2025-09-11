@@ -48,7 +48,7 @@ func setupSelect(b *testing.B, short bool, compression bool, protoVersion int) *
 	if err != nil {
 		b.Fatal(err)
 	}
-	err = session.Query(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %v.%v (id bigint PRIMARY KEY, c1 UUID, c2 text, c3 bigint)", *keyspace, *table)).Exec()
+	err = session.Query(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %v.%v (id bigint PRIMARY KEY, c2 text, c3 bigint)", *keyspace, *table)).Exec()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -101,20 +101,13 @@ func populateTable(b *testing.B, short bool, session *gocql.Session) {
 			defer wg.Done()
 			r := rand.New(rand.NewSource(int64(start)))
 			for g := start; g <= end; g++ {
-				uuidBytes := make([]byte, 16)
-				r.Read(uuidBytes)
-				uuid, err := gocql.UUIDFromBytes(uuidBytes)
-				if err != nil {
-					errCh <- err
-					return
-				}
 				var strLen int
 				if short {
 					strLen = 16
 				} else {
 					strLen = 4096
 				}
-				err = session.Query(fmt.Sprintf("INSERT INTO %v.%v (id, c1, c2, c3) VALUES (?,?,?,?)", *keyspace, *table), g, uuid, randStringBytes(r, strLen), g*g).Exec()
+				err := session.Query(fmt.Sprintf("INSERT INTO %v.%v (id, c2, c3) VALUES (?,?,?)", *keyspace, *table), g, randStringBytes(r, strLen), g*g).Exec()
 				if err != nil {
 					errCh <- err
 					return

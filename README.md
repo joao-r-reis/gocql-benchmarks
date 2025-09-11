@@ -54,7 +54,6 @@ The benchmark uses the following table schema:
 `sql
 CREATE TABLE benchmark2 (
     id bigint PRIMARY KEY,
-    c1 UUID,
     c2 text,
     c3 bigint
 );
