@@ -27,13 +27,11 @@ type SystemMetrics struct {
 type PerformanceMetrics struct {
 	// Summary metrics for precise latency percentiles
 	InsertLatency prometheus.Summary
-	UpdateLatency prometheus.Summary
 	SelectLatency prometheus.Summary
 	CycleLatency  prometheus.Summary
 
 	// Counter metrics for operations and errors
 	InsertCount prometheus.Counter
-	UpdateCount prometheus.Counter
 	SelectCount prometheus.Counter
 	ErrorCount  prometheus.Counter
 	CycleCount  prometheus.Counter
@@ -95,7 +93,6 @@ func NewPerformanceMetrics() *PerformanceMetrics {
 
 	// Create summary metrics for precise percentile calculations
 	insertLatency := createSummary("cassandra_insert_duration_seconds", "Summary of INSERT operation latencies with precise percentiles")
-	updateLatency := createSummary("cassandra_update_duration_seconds", "Summary of UPDATE operation latencies with precise percentiles")
 	selectLatency := createSummary("cassandra_select_duration_seconds", "Summary of SELECT operation latencies with precise percentiles")
 	cycleLatency := createSummary("cassandra_cycle_duration_seconds", "Summary of complete cycle latencies with precise percentiles")
 
@@ -109,7 +106,6 @@ func NewPerformanceMetrics() *PerformanceMetrics {
 
 	// Create counter metrics
 	insertCount := createCounter("cassandra_insert_operations_total", "Total number of INSERT operations")
-	updateCount := createCounter("cassandra_update_operations_total", "Total number of UPDATE operations")
 	selectCount := createCounter("cassandra_select_operations_total", "Total number of SELECT operations")
 	errorCount := createCounter("cassandra_error_operations_total", "Total number of failed operations")
 	cycleCount := createCounter("cassandra_cycle_operations_total", "Total number of completed cycles")
@@ -126,8 +122,8 @@ func NewPerformanceMetrics() *PerformanceMetrics {
 	memoryUsedGauge := createGauge("system_memory_used_bytes", "Current memory usage in bytes")
 
 	// Register metrics
-	registry.MustRegister(insertLatency, updateLatency, selectLatency, cycleLatency)
-	registry.MustRegister(insertCount, updateCount, selectCount, errorCount, cycleCount)
+	registry.MustRegister(insertLatency, selectLatency, cycleLatency)
+	registry.MustRegister(insertCount, selectCount, errorCount, cycleCount)
 	registry.MustRegister(memoryUsedGauge)
 
 	// Log the calculated MaxAge for transparency
@@ -135,11 +131,9 @@ func NewPerformanceMetrics() *PerformanceMetrics {
 
 	return &PerformanceMetrics{
 		InsertLatency:     insertLatency,
-		UpdateLatency:     updateLatency,
 		SelectLatency:     selectLatency,
 		CycleLatency:      cycleLatency,
 		InsertCount:       insertCount,
-		UpdateCount:       updateCount,
 		SelectCount:       selectCount,
 		ErrorCount:        errorCount,
 		CycleCount:        cycleCount,
@@ -154,12 +148,6 @@ func NewPerformanceMetrics() *PerformanceMetrics {
 func (m *PerformanceMetrics) RecordInsert(duration time.Duration) {
 	m.InsertLatency.Observe(duration.Seconds())
 	m.InsertCount.Inc()
-}
-
-// RecordUpdate records an UPDATE operation timing
-func (m *PerformanceMetrics) RecordUpdate(duration time.Duration) {
-	m.UpdateLatency.Observe(duration.Seconds())
-	m.UpdateCount.Inc()
 }
 
 // RecordSelect records a SELECT operation timing
@@ -269,7 +257,6 @@ func (m *PerformanceMetrics) writeDetailedMetricsToWriter(w io.Writer) {
 
 	// Get stats for each operation type
 	insertStats := m.GetSummaryStats(m.InsertLatency)
-	updateStats := m.GetSummaryStats(m.UpdateLatency)
 	selectStats := m.GetSummaryStats(m.SelectLatency)
 	cycleStats := m.GetSummaryStats(m.CycleLatency)
 
@@ -293,12 +280,11 @@ func (m *PerformanceMetrics) writeDetailedMetricsToWriter(w io.Writer) {
 
 	// Operation statistics with percentiles
 	m.writeOperationStatsWithPercentilesToWriter(w, "INSERT", insertStats)
-	m.writeOperationStatsWithPercentilesToWriter(w, "UPDATE", updateStats)
 	m.writeOperationStatsWithPercentilesToWriter(w, "SELECT", selectStats)
 	m.writeOperationStatsWithPercentilesToWriter(w, "CYCLE", cycleStats)
 
 	// Throughput statistics
-	totalOps := insertStats["count"] + updateStats["count"] + selectStats["count"]
+	totalOps := insertStats["count"] + selectStats["count"]
 	if totalOps > 0 && totalDuration.Seconds() > 0 {
 		fmt.Fprintf(w, "%s\n", strings.Repeat("-", 80))
 		fmt.Fprintf(w, "Total Operations: %.0f\n", totalOps)
@@ -306,9 +292,6 @@ func (m *PerformanceMetrics) writeDetailedMetricsToWriter(w io.Writer) {
 
 		if insertCount := insertStats["count"]; insertCount > 0 {
 			fmt.Fprintf(w, "Inserts per Second: %.3f\n", insertCount/totalDuration.Seconds())
-		}
-		if updateCount := updateStats["count"]; updateCount > 0 {
-			fmt.Fprintf(w, "Updates per Second: %.3f\n", updateCount/totalDuration.Seconds())
 		}
 		if selectCount := selectStats["count"]; selectCount > 0 {
 			fmt.Fprintf(w, "Selects per Second: %.3f\n", selectCount/totalDuration.Seconds())
@@ -413,7 +396,6 @@ func (m *PerformanceMetrics) PrintConciseSummary() {
 
 	// Get stats for each operation type
 	insertStats := m.GetSummaryStats(m.InsertLatency)
-	updateStats := m.GetSummaryStats(m.UpdateLatency)
 	selectStats := m.GetSummaryStats(m.SelectLatency)
 	cycleStats := m.GetSummaryStats(m.CycleLatency)
 
@@ -433,7 +415,7 @@ func (m *PerformanceMetrics) PrintConciseSummary() {
 	fmt.Printf("Total Errors: %.0f\n", errorCount)
 
 	// Throughput statistics
-	totalOps := insertStats["count"] + updateStats["count"] + selectStats["count"]
+	totalOps := insertStats["count"] + selectStats["count"]
 	if totalOps > 0 && totalDuration.Seconds() > 0 {
 		fmt.Printf("Operations per Second: %.3f\n", totalOps/totalDuration.Seconds())
 	}
@@ -444,13 +426,6 @@ func (m *PerformanceMetrics) PrintConciseSummary() {
 			fmt.Printf("Median INSERT Latency: %.3fms (%.0fμs)\n", p50*1000, p50*1000000)
 		} else {
 			fmt.Printf("Median INSERT Latency: %.3fms (%.0fμs)\n", insertStats["avg"]*1000, insertStats["avg"]*1000000)
-		}
-	}
-	if updateStats["count"] > 0 {
-		if p50, exists := updateStats["p50"]; exists {
-			fmt.Printf("Median UPDATE Latency: %.3fms (%.0fμs)\n", p50*1000, p50*1000000)
-		} else {
-			fmt.Printf("Median UPDATE Latency: %.3fms (%.0fμs)\n", updateStats["avg"]*1000, updateStats["avg"]*1000000)
 		}
 	}
 	if selectStats["count"] > 0 {
@@ -493,7 +468,6 @@ func (m *PerformanceMetrics) PrintSummary() {
 
 	// Get stats for each operation type
 	insertStats := m.GetSummaryStats(m.InsertLatency)
-	updateStats := m.GetSummaryStats(m.UpdateLatency)
 	selectStats := m.GetSummaryStats(m.SelectLatency)
 	cycleStats := m.GetSummaryStats(m.CycleLatency)
 
@@ -517,12 +491,11 @@ func (m *PerformanceMetrics) PrintSummary() {
 
 	// Operation statistics with percentiles
 	m.printOperationStatsWithPercentiles("INSERT", insertStats)
-	m.printOperationStatsWithPercentiles("UPDATE", updateStats)
 	m.printOperationStatsWithPercentiles("SELECT", selectStats)
 	m.printOperationStatsWithPercentiles("CYCLE", cycleStats)
 
 	// Throughput statistics
-	totalOps := insertStats["count"] + updateStats["count"] + selectStats["count"]
+	totalOps := insertStats["count"] + selectStats["count"]
 	if totalOps > 0 && totalDuration.Seconds() > 0 {
 		fmt.Println(strings.Repeat("-", 80))
 		fmt.Printf("Total Operations: %.0f\n", totalOps)
@@ -530,9 +503,6 @@ func (m *PerformanceMetrics) PrintSummary() {
 
 		if insertCount := insertStats["count"]; insertCount > 0 {
 			fmt.Printf("Inserts per Second: %.3f\n", insertCount/totalDuration.Seconds())
-		}
-		if updateCount := updateStats["count"]; updateCount > 0 {
-			fmt.Printf("Updates per Second: %.3f\n", updateCount/totalDuration.Seconds())
 		}
 		if selectCount := selectStats["count"]; selectCount > 0 {
 			fmt.Printf("Selects per Second: %.3f\n", selectCount/totalDuration.Seconds())
@@ -678,7 +648,7 @@ func main() {
 	cluster := &ClusterConfig{
 		Hosts:            strings.Split(*contactPoints, ","),
 		Compression:      *compression,
-		DefaultTimestamp: false,
+		DefaultTimestamp: true,
 		ProtoVersion:     *protoVersion,
 		Timeout:          30 * time.Second,
 	}
@@ -926,26 +896,7 @@ func runWorkloadCycleWithContext(ctx context.Context, session Session, rng *rand
 		return ctx.Err()
 	}
 
-	// 2. UPDATE operation
-	updateQuery := fmt.Sprintf("UPDATE %s.%s SET c2 = ?, c3 = ? WHERE id = ?", *keyspace, *table)
-	updateData := randStringBytes(rng, 32)
-	updateValue := baseID * baseID * 2
-
-	// Time the UPDATE operation
-	updateStart := time.Now()
-	if err := session.Exec(updateQuery, updateData, updateValue, baseID); err != nil {
-		return fmt.Errorf("UPDATE failed: %w", err)
-	}
-	if metrics != nil {
-		metrics.RecordUpdate(time.Since(updateStart))
-	}
-
-	// Check if context is cancelled before continuing
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	// 3. SELECT operation - read the data we just inserted to ensure it exists
+	// 2. SELECT operation - read the data we just inserted to ensure it exists
 	selectQuery := fmt.Sprintf("SELECT * FROM %s.%s WHERE id = ?", *keyspace, *table)
 
 	// Time the SELECT operation
@@ -967,11 +918,11 @@ func runWorkloadCycleWithContext(ctx context.Context, session Session, rng *rand
 	if id != baseID {
 		return fmt.Errorf("SELECT failed: expected id %d, got %d", baseID, id)
 	}
-	if c2 != updateData {
-		return fmt.Errorf("SELECT failed: expected c2 %s, got %s", updateData, c2)
+	if c2 != insertData {
+		return fmt.Errorf("SELECT failed: expected c2 %s, got %s", insertData, c2)
 	}
-	if c3 != updateValue {
-		return fmt.Errorf("SELECT failed: expected c3 %d, got %d", updateValue, c3)
+	if c3 != insertValue {
+		return fmt.Errorf("SELECT failed: expected c3 %d, got %d", insertValue, c3)
 	}
 
 	return nil
