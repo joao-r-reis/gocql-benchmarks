@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -625,6 +626,8 @@ var (
 	protoVersion    = flag.Int("proto-version", 4, "Cassandra protocol version")
 	metricsInterval = flag.Duration("metrics-interval", time.Second, "Interval for collecting system metrics (e.g., 1s, 500ms)")
 	reportFile      = flag.String("report-file", "", "Path to write detailed benchmark report (default: write to stdout)")
+	memProfile      = flag.String("memprofile", "", "Path to write memory profile (default: empty string = no profile)")
+	cpuProfile      = flag.String("cpuprofile", "", "Path to write cpu profile (default: empty string = no profile)")
 )
 
 const (
@@ -643,6 +646,18 @@ const (
 
 func main() {
 	flag.Parse()
+
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = pprof.StartCPUProfile(f)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
 
 	// Setup Cassandra cluster
 	cluster := &ClusterConfig{
@@ -690,6 +705,15 @@ func main() {
 	totalTime := metrics.EndTime.Sub(metrics.StartTime)
 	fmt.Printf("Completed %d cycles in %v\n", *cycles, totalTime)
 	fmt.Printf("Average time per cycle: %v\n", totalTime/time.Duration(*cycles))
+
+	session.Close()
+
+	if *memProfile != "" {
+		f, _ := os.Create(*memProfile)
+		defer f.Close()
+		runtime.GC()
+		pprof.WriteHeapProfile(f)
+	}
 
 	// Generate detailed report
 	if *reportFile != "" {
