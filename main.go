@@ -712,7 +712,9 @@ func main() {
 		f, _ := os.Create(*memProfile)
 		defer f.Close()
 		runtime.GC()
-		pprof.WriteHeapProfile(f)
+		if err := pprof.Lookup("allocs").WriteTo(f, 0); err != nil {
+			log.Fatal("could not write memory profile: ", err)
+		}
 	}
 
 	// Generate detailed report
