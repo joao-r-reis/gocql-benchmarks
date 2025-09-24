@@ -2,7 +2,7 @@ module gocql-benchmarks
 
 go 1.24
 
-replace github.com/apache/cassandra-gocql-driver/v2 => github.com/joao-r-reis/cassandra-gocql-driver/v2 v2.0.0-rc1.0.20250924181446-eae7d14437fb
+replace github.com/apache/cassandra-gocql-driver/v2 => github.com/joao-r-reis/cassandra-gocql-driver/v2 v2.0.0-rc1.0.20250924215006-e860946de88e
 
 require (
 	github.com/apache/cassandra-gocql-driver/v2 v2.0.0-rc1
