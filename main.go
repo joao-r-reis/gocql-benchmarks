@@ -146,7 +146,7 @@ func setupSchema(session Session) error {
 	}
 
 	// Create table
-	createTable := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.%s (id bigint PRIMARY KEY, c2 text, c3 bigint, c3 text, c4 text, c5 text, c6 text, c7 text, c8 bigint)", *keyspace, *table)
+	createTable := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.%s (id bigint PRIMARY KEY, c2 text, c3 bigint, c4 text, c5 text, c6 text, c7 text, c8 bigint)", *keyspace, *table)
 	if err := session.Exec(createTable); err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
@@ -317,7 +317,7 @@ func runWorkloadCycleWithContext(ctx context.Context, session Session, rng *rand
 
 	// Time the INSERT operation
 	insertStart := time.Now()
-	if err := session.Exec(insertQuery, baseID, insertData, insertValue); err != nil {
+	if err := session.Exec(insertQuery, baseID, insertData, insertValue, insertc4, insertc5, insertc6, insertc7, insertc8); err != nil {
 		return fmt.Errorf("INSERT failed: %w", err)
 	}
 	if metrics != nil {
@@ -344,7 +344,7 @@ func runWorkloadCycleWithContext(ctx context.Context, session Session, rng *rand
 	var c7 string
 	var c8 int64
 
-	err := session.Query(selectQuery, []interface{}{baseID}, &id, &c2, &c3)
+	err := session.Query(selectQuery, []interface{}{baseID}, &id, &c2, &c3, &c4, &c5, &c6, &c7, &c8)
 	if err != nil {
 		return fmt.Errorf("SELECT failed: %w", err)
 	}
